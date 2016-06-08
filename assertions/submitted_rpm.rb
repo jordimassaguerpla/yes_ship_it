@@ -1,18 +1,18 @@
 module YSI
   class SubmittedRpm < Assertion
-    parameter :obs_project
+    needs "obs_project"
+    needs "release_archive"
+    parameter :spec_file_path, "rpm"
+    parameter :project_metadata_path, "obs"
 
-    attr_reader :obs_user, :obs_password
     attr_reader :obs_package_files
+
+    def obs_project_name
+      @engine.obs_project_name
+    end
 
     def self.display_name
       "submitted RPM"
-    end
-
-    def read_obs_credentials(file_name)
-      oscrc = IniFile.load(file_name)
-      @obs_user = oscrc["https://api.opensuse.org"]["user"]
-      @obs_password = oscrc["https://api.opensuse.org"]["pass"]
     end
 
     def archive_file_name
@@ -47,33 +47,14 @@ module YSI
     end
 
     def base_url
-      "https://#{obs_user}:#{obs_password}@api.opensuse.org/source/#{obs_project}/#{engine.project_name}"
+      YSI::ObsHelper.obs_package_url(obs_project_name, @engine.project_name)
     end
 
     def check
-      if !obs_project
-        raise AssertionError.new("OBS project is not set")
-      end
-      if !engine.release_archive
-        raise AssertionError.new("Release archive is not set. Assert release_archive before submitted_rpm")
-      end
-
-      read_obs_credentials(File.expand_path("~/.oscrc"))
-
+      @obs_package_files = nil
+      xml = YSI::ObsHelper.obs_package_meta(obs_project_name, @engine.project_name)
+      return nil if !xml
       @obs_package_files = []
-
-      begin
-        xml = RestClient.get(base_url)
-      rescue RestClient::Exception => e
-        if e.is_a?(RestClient::ResourceNotFound)
-          return nil
-        elsif e.is_a?(RestClient::Unauthorized)
-          raise AssertionError.new("No credentials set for OBS. Use osc to do this.")
-        else
-          raise AssertionError.new(e.to_s)
-        end
-      end
-
       doc = REXML::Document.new(xml)
       doc.elements.each("directory/entry") do |element|
         file_name = element.attributes["name"]
@@ -85,8 +66,21 @@ module YSI
       nil
     end
 
+    def create_package_metadata(template)
+      erb = ERB.new(File.read(template))
+      erb.result(@engine.get_binding)
+    end
+
     def assert(executor)
       engine.out.puts "..."
+
+      if !@obs_package_files
+        engine.out.puts "Uploading package metadata"
+        content = create_package_metadata("#{project_metadata_path}/package.xml.erb")
+        url = "#{YSI::ObsHelper.obs_package_url(obs_project_name, engine.project_name)}/_meta"
+        executor.http_put(url, content, content_type: "text/plain")
+        @obs_package_files = []
+      end
 
       old_files = []
       @obs_package_files.each do |file|
@@ -94,7 +88,6 @@ module YSI
         next if file == archive_file_name
         old_files.push(file)
       end
-
       engine.out.puts "  Uploading release archive '#{archive_file_name}'"
       url = "#{base_url}/#{archive_file_name}"
       file = File.new(engine.release_archive, "rb")
@@ -103,7 +96,7 @@ module YSI
       spec_file = engine.project_name + ".spec"
       engine.out.puts "  Uploading spec file '#{spec_file}'"
       url = "#{base_url}/#{spec_file}"
-      content = create_spec_file("rpm/#{spec_file}.erb")
+      content = create_spec_file("#{spec_file_path}/#{spec_file}.erb")
       executor.http_put(url, content, content_type: "text/plain")
 
       old_files.each do |old_file|
@@ -114,7 +107,7 @@ module YSI
 
       engine.out.print "... "
 
-      "#{obs_project}/#{engine.project_name}"
+      "#{obs_project_name}/#{engine.project_name}"
     end
   end
 end

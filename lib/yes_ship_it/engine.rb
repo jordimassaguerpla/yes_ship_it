@@ -3,7 +3,7 @@ module YSI
     attr_reader :assertions
     attr_reader :executor
     attr_writer :tag_date
-    attr_accessor :version, :release_archive
+    attr_accessor :version, :release_archive, :obs_project_name
     attr_accessor :out
     attr_accessor :data_dir
 
@@ -114,6 +114,10 @@ module YSI
         end
       end
       false
+    end
+
+    def get_binding
+      binding
     end
 
     def run

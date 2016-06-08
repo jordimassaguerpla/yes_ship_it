@@ -14,6 +14,7 @@ require_relative "yes_ship_it/git.rb"
 require_relative "yes_ship_it/executor.rb"
 require_relative "yes_ship_it/dry_executor.rb"
 require_relative "yes_ship_it/init.rb"
+require_relative "yes_ship_it/obs_helper.rb"
 require_relative "yes_ship_it/plugin.rb"
 
 assertions_dir = File.expand_path("../../assertions", __FILE__)
